@@ -12,21 +12,21 @@ Usage:
 """
 
 import time
-import RPi.GPIO as GPIO
+import lgpio
 from config import IR_SENSOR_PIN, IR_DEBOUNCE_SECS
 
 
 class IRSensor:
     def __init__(self):
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(IR_SENSOR_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        self._chip = lgpio.gpiochip_open(0)
+        lgpio.gpio_claim_input(self._chip, IR_SENSOR_PIN, lgpio.SET_PULL_UP)
         self._last_trigger = 0.0
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def is_triggered(self) -> bool:
         """Return True if an object is currently blocking the IR beam."""
-        return GPIO.input(IR_SENSOR_PIN) == GPIO.LOW
+        return lgpio.gpio_read(self._chip, IR_SENSOR_PIN) == 0
 
     def wait_for_fruit(self, poll_interval: float = 0.05) -> None:
         """
@@ -44,4 +44,4 @@ class IRSensor:
 
     def cleanup(self) -> None:
         """Release the GPIO pin (call when the program exits)."""
-        GPIO.cleanup(IR_SENSOR_PIN)
+        lgpio.gpiochip_close(self._chip)
