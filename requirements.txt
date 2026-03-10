@@ -1,0 +1,9 @@
+# Raspberry Pi 5 – Fruit Classification System
+# Install with: pip install -r requirements.txt
+
+picamera2
+opencv-python
+RPi.GPIO
+pillow
+luma.oled
+luma.core
