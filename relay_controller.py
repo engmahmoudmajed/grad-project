@@ -14,20 +14,19 @@ Usage:
 
 import time
 import threading
-import RPi.GPIO as GPIO
+import lgpio
 from config import RELAY_PINS, RELAY_ACTIVE_LOW
 
 
 class RelayController:
     def __init__(self):
-        GPIO.setmode(GPIO.BCM)
+        self._chip = lgpio.gpiochip_open(0)
         # Determine the electrical levels for ON / OFF
-        self._on_level  = GPIO.LOW  if RELAY_ACTIVE_LOW else GPIO.HIGH
-        self._off_level = GPIO.HIGH if RELAY_ACTIVE_LOW else GPIO.LOW
+        self._on_level  = 0 if RELAY_ACTIVE_LOW else 1
+        self._off_level = 1 if RELAY_ACTIVE_LOW else 0
 
         for pin in RELAY_PINS:
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, self._off_level)   # start with all relays OFF
+            lgpio.gpio_claim_output(self._chip, pin, self._off_level)  # start OFF
 
         self._threads: list[threading.Thread] = []
 
@@ -42,10 +41,10 @@ class RelayController:
         self._validate_index(relay_index)
         pin = RELAY_PINS[relay_index]
         try:
-            GPIO.output(pin, self._on_level)
+            lgpio.gpio_write(self._chip, pin, self._on_level)
             time.sleep(pulse_duration)
         finally:
-            GPIO.output(pin, self._off_level)
+            lgpio.gpio_write(self._chip, pin, self._off_level)
 
     def schedule(
         self,
@@ -73,12 +72,12 @@ class RelayController:
     def all_off(self) -> None:
         """Force all relays OFF immediately (safety method)."""
         for pin in RELAY_PINS:
-            GPIO.output(pin, self._off_level)
+            lgpio.gpio_write(self._chip, pin, self._off_level)
 
     def cleanup(self) -> None:
         """Turn off relays and release GPIO pins."""
         self.all_off()
-        GPIO.cleanup(RELAY_PINS)
+        lgpio.gpiochip_close(self._chip)
 
     # ── Private ───────────────────────────────────────────────────────────────
 

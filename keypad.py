@@ -22,7 +22,7 @@ Usage:
 """
 
 import time
-import RPi.GPIO as GPIO
+import lgpio
 from config import KEYPAD_ROWS, KEYPAD_COLS, KEYPAD_LAYOUT
 
 
@@ -31,13 +31,13 @@ _DEBOUNCE_MS = 50   # milliseconds
 
 class Keypad:
     def __init__(self):
-        GPIO.setmode(GPIO.BCM)
+        self._chip = lgpio.gpiochip_open(0)
 
         for row_pin in KEYPAD_ROWS:
-            GPIO.setup(row_pin, GPIO.OUT, initial=GPIO.LOW)
+            lgpio.gpio_claim_output(self._chip, row_pin, 0)  # start LOW
 
         for col_pin in KEYPAD_COLS:
-            GPIO.setup(col_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            lgpio.gpio_claim_input(self._chip, col_pin, lgpio.SET_PULL_DOWN)
 
         self._last_key: str | None = None
         self._last_press_time: float = 0.0
@@ -51,10 +51,10 @@ class Keypad:
         or None if no key is pressed.  Includes simple debounce.
         """
         for row_idx, row_pin in enumerate(KEYPAD_ROWS):
-            GPIO.output(row_pin, GPIO.HIGH)
+            lgpio.gpio_write(self._chip, row_pin, 1)  # drive HIGH
             for col_idx, col_pin in enumerate(KEYPAD_COLS):
-                if GPIO.input(col_pin) == GPIO.HIGH:
-                    GPIO.output(row_pin, GPIO.LOW)
+                if lgpio.gpio_read(self._chip, col_pin) == 1:
+                    lgpio.gpio_write(self._chip, row_pin, 0)  # drive LOW
                     key = KEYPAD_LAYOUT[row_idx][col_idx]
                     now = time.time()
                     # Debounce: ignore repeated reporting of the same key
@@ -63,7 +63,7 @@ class Keypad:
                     self._last_key = key
                     self._last_press_time = now
                     return key
-            GPIO.output(row_pin, GPIO.LOW)
+            lgpio.gpio_write(self._chip, row_pin, 0)  # drive LOW
 
         # No key pressed – reset tracking when all keys released
         self._last_key = None
@@ -95,4 +95,4 @@ class Keypad:
 
     def cleanup(self) -> None:
         """Release GPIO pins."""
-        GPIO.cleanup(KEYPAD_ROWS + KEYPAD_COLS)
+        lgpio.gpiochip_close(self._chip)

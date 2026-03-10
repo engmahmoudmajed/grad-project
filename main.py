@@ -22,7 +22,6 @@ import time
 import signal
 import logging
 
-import RPi.GPIO as GPIO
 
 from config       import (
     PRODUCE_NAMES,
@@ -60,7 +59,6 @@ signal.signal(signal.SIGTERM, _shutdown)
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 def main():
-    GPIO.setmode(GPIO.BCM)
 
     log.info("Initialising hardware modules …")
     camera  = Camera()
@@ -143,7 +141,6 @@ def main():
         ir.cleanup()
         keypad.cleanup()
         camera.close()
-        GPIO.cleanup()
         log.info("Goodbye.")
 
 
