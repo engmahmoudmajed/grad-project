@@ -1,8 +1,18 @@
 # Fruit Classification System 🍎🍊🍋
 
-A Raspberry Pi 5 embedded system that automatically classifies fruit by size and activates conveyor belt sorting gates.
+A Raspberry Pi embedded system that automatically classifies fruit by size and activates conveyor belt sorting gates using a hybrid AI (YOLOv8) + Computer Vision (OpenCV) approach.
 
-## Hardware
+## Features
+- **Dual Camera Vision**: Utilizes both `ov5647` and `imx219` cameras to capture the best possible frame of the moving fruit.
+- **Hybrid AI Detection**: Uses YOLOv8-nano for high-confidence fruit bounding boxes, falling back to OpenCV Otsu threshold contour detection when needed.
+- **Live MJPEG Monitor**: Includes a lightweight web server (`monitor/server.py`) to stream both cameras live to any browser on the network.
+- **Hardware Integration**: 
+  - 4x4 Keypad for selecting produce category
+  - SSD1306/SH1106 OLED Display for live UI and stats
+  - IR Sensor for physical trigger
+  - Automated Relay control for sorting gates
+
+## Hardware Setup
 
 | Component | GPIO (BCM) |
 |-----------|-----------|
@@ -12,18 +22,24 @@ A Raspberry Pi 5 embedded system that automatically classifies fruit by size and
 | IR Sensor | 26 |
 | OLED SDA/SCL | 2 / 3 (I2C) |
 
+*Note: Relays are configured as active-High (Normally-Open).*
+
 ## Project Structure
 
-```
+```text
 grad-project/
 ├── main.py              # Main event loop
-├── config.py            # GPIO pins, produce sizes, timing constants
-├── camera.py            # Image capture + OpenCV size measurement
+├── config.py            # GPIO pins, produce sizes, AI & timing constants
+├── camera.py            # Dual-camera capture and pipeline manager
+├── detector.py          # YOLOv8 + OpenCV size measurement logic
 ├── classifier.py        # Size classification logic
 ├── relay_controller.py  # GPIO relay control with timed pulses
 ├── keypad.py            # 4×4 matrix keypad driver
-├── oled_display.py      # SH1106 OLED display (idle stats + events)
+├── oled_display.py      # I2C OLED display (idle stats + events)
 ├── ir_sensor.py         # IR obstacle sensor driver
+├── calibrate.py         # Interative tool to compute PIXELS_PER_MM
+├── monitor/             
+│   └── server.py        # Live MJPEG viewer for both cameras
 ├── requirements.txt     # Python dependencies
 ├── assets/              # Font files for OLED display
 └── tests/               # Unit tests (run on any machine)
@@ -31,35 +47,51 @@ grad-project/
 
 ## How it works
 
-1. **Keypad**: Press `C` + `1–9` to select produce type (Apple=1, Orange=2, … Lemon=9)
-2. **IR Sensor**: Detects a fruit passing on the conveyor belt
-3. **Camera**: Captures an image and measures the fruit's size in mm using OpenCV
-4. **Classifier**: Compares the measured size to the produce's known size table
+1. **Keypad**: Press `C` + `1–9` to select produce type (Apple=1, Orange=2, … Lemon=9).
+2. **IR Sensor**: Detects a fruit passing on the conveyor belt.
+3. **Camera Pipeline**: Captures images from both cameras. `detector.py` uses YOLOv8 (and OpenCV fallback) to find the best bounding box and calculates size in mm.
+4. **Classifier**: Compares the measured size to the produce's known size table.
 5. **Relay**: Schedules the correct sorting gate to open after a delay:
    - Small → Relay 1, after 5 s
    - Medium → Relay 2, after 10 s
    - Big → Relay 3, after 15 s
-6. **OLED**: Shows live system status and flashes classification results for 3 seconds
+6. **OLED**: Shows live system status and flashes classification results for 3 seconds.
 
 ## Setup
 
 ```bash
-# On the Raspberry Pi
+# Clone the repository
+git clone <repository-url>
+cd grad-project
+
+# Setup virtual environment and install dependencies
+python3 -m venv venv --system-site-packages
+source venv/bin/activate
 pip install -r requirements.txt
 
 # Copy font files to assets/ (see assets/README.md)
+```
 
-# Calibrate the camera (measure a known object, update PIXELS_PER_MM in config.py)
+## Running the System
 
-# Run
+**Terminal 1: Start the automated sorter**
+```bash
+source venv/bin/activate
 python main.py
 ```
 
-## Running Tests (on any machine)
-
+**Terminal 2 (Optional): Start the Live Monitor**
 ```bash
-pip install pytest
-python -m pytest tests/ -v
+source venv/bin/activate
+python monitor/server.py
+```
+Open your browser at: `http://<raspberry-pi-ip>:8080`
+
+**Calibration**
+To calibrate the `PIXELS_PER_MM` conversion ratio for your camera height:
+```bash
+source venv/bin/activate
+python calibrate.py
 ```
 
 ## Produce Size Reference

@@ -28,6 +28,7 @@ from config       import (
     RELAY_DELAYS,
     RELAY_PULSE_DURATION,
     SIZE_TO_RELAY,
+    DEFAULT_SIZE_MM,
 )
 from camera           import Camera
 from classifier       import classify_info
@@ -38,8 +39,8 @@ from relay_controller import RelayController
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
@@ -97,12 +98,30 @@ def main():
 
             # ── 3. Capture image + measure ───────────────────────────────────
             try:
-                size_mm, img_path = camera.capture_and_measure()
+                size_mm, img_path = camera.capture_and_measure(
+                    produce_name=PRODUCE_NAMES[selected_produce]
+                )
             except Exception as e:
                 log.error(f"Camera error: {e}")
                 continue
 
             log.info(f"Measured size: {size_mm} mm  (image: {img_path})")
+
+            # Size 0.0 means the camera could not detect a fruit contour
+            if size_mm == 0.0:
+                if DEFAULT_SIZE_MM > 0:
+                    size_mm = DEFAULT_SIZE_MM
+                    log.warning(
+                        f"Camera failed to detect fruit – using fallback size: "
+                        f"{DEFAULT_SIZE_MM} mm. Reposition cameras to fix this."
+                    )
+                else:
+                    log.warning(
+                        "Camera returned 0.0 mm – fruit not detected. "
+                        "Skipping relay (DEFAULT_SIZE_MM=0)."
+                    )
+                    time.sleep(1.0)
+                    continue
 
             # ── 4. Classify ──────────────────────────────────────────────────
             info = classify_info(size_mm, selected_produce)

@@ -9,9 +9,9 @@ All GPIO pins, produce size tables, and timing constants live here.
 KEYPAD_ROWS = [18, 23, 24, 25]   # Output (driven HIGH one at a time)
 KEYPAD_COLS = [10, 22, 27, 17]   # Input  (read to detect which column is pressed)
 
-# Relay Module  (active-LOW: GPIO LOW = relay ON)
+# Relay Module  (active-HIGH: GPIO HIGH = relay ON  →  Normally-Open wiring)
 RELAY_PINS = [16, 20, 21, 19]    # Relay 1, 2, 3, 4
-RELAY_ACTIVE_LOW = True          # Set False if your relay board is active-HIGH
+RELAY_ACTIVE_LOW = False         # False = active-HIGH (NO relay: HIGH turns relay ON)
 
 # IR Obstacle Sensor (LOW when object detected)
 IR_SENSOR_PIN = 26
@@ -68,7 +68,30 @@ PRODUCE_SIZES_MM = [
 CAPTURE_PATH      = "/tmp/fruit_capture.jpg"
 # Calibration: how many pixels correspond to 1 mm at the camera's working distance.
 # Measure a known-size object to calibrate this value.
-PIXELS_PER_MM     = 5.0   # ← UPDATE after hardware calibration
+PIXELS_PER_MM     = 5.0   # Default – run  python calibrate.py  to set this precisely.
+                          # Formula: point camera at a known-width object → PIXELS_PER_MM = px ÷ mm
+
+# If BOTH cameras fail to detect a fruit, use this fallback size (0 = disabled).
+# This lets the system fire relays even while cameras are being repositioned.
+DEFAULT_SIZE_MM   = 70.0  # mm – medium-sized fruit as fallback (set 0 to disable)
+
+# ─── YOLOv8 Detector ─────────────────────────────────────────────────────────────
+USE_YOLO        = True          # Set False to use OpenCV-only mode
+YOLO_MODEL      = "yolov8n.pt"  # Nano model (~6 MB), auto-downloaded on first run
+YOLO_CONFIDENCE = 0.20          # Minimum detection confidence (0–1)
+
+# Map produce names → YOLO COCO class names (None = accept any detection)
+YOLO_CLASS_MAP = {
+    "Apple":       "apple",
+    "Orange":      "orange",
+    "Banana":      "banana",
+    "Tomato":      None,    # not in COCO – largest box used
+    "Potato":      None,
+    "Onion":       None,
+    "Bell Pepper": None,
+    "Cucumber":    None,
+    "Lemon":       None,
+}
 
 # ─── OLED Display ─────────────────────────────────────────────────────────────
 OLED_I2C_PORT    = 1
@@ -76,6 +99,14 @@ OLED_I2C_ADDRESS = 0x3C
 OLED_WIDTH       = 128
 OLED_HEIGHT      = 64
 OLED_EVENT_SECS  = 3      # seconds to show an event message before returning to idle
+
+# ─── Fonts ────────────────────────────────────────────────────────────────────
+import os as _os
+FONT_DIR       = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "assets")
+FONT_PATH      = _os.path.join(FONT_DIR, "PixelOperator.ttf")
+ICON_FONT_PATH = _os.path.join(FONT_DIR, "lineawesome-webfont.ttf")
+FONT_SIZE      = 16
+ICON_FONT_SIZE = 18
 
 # ─── Keypad Layout ────────────────────────────────────────────────────────────
 KEYPAD_LAYOUT = [

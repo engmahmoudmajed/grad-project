@@ -17,7 +17,6 @@ Usage:
     display.stop()                         # clean shutdown
 """
 
-import os
 import time
 import threading
 import subprocess
@@ -32,12 +31,11 @@ from config import (
     OLED_WIDTH,
     OLED_HEIGHT,
     OLED_EVENT_SECS,
+    FONT_PATH,
+    ICON_FONT_PATH,
+    FONT_SIZE,
+    ICON_FONT_SIZE,
 )
-
-# Locate font files relative to this script
-_BASE_DIR    = os.path.dirname(os.path.realpath(__file__))
-_FONT_PATH_1 = os.path.join(_BASE_DIR, "assets", "PixelOperator.ttf")
-_FONT_PATH_2 = os.path.join(_BASE_DIR, "assets", "lineawesome-webfont.ttf")
 
 
 class OLEDDisplay:
@@ -47,8 +45,8 @@ class OLEDDisplay:
 
         # Load fonts with graceful fallback
         try:
-            self._font      = ImageFont.truetype(_FONT_PATH_1, 16)
-            self._icon_font = ImageFont.truetype(_FONT_PATH_2, 18)
+            self._font      = ImageFont.truetype(FONT_PATH,      FONT_SIZE)
+            self._icon_font = ImageFont.truetype(ICON_FONT_PATH, ICON_FONT_SIZE)
         except IOError:
             self._font      = ImageFont.load_default()
             self._icon_font = ImageFont.load_default()

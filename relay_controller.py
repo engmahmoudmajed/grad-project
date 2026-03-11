@@ -1,8 +1,10 @@
 """
 relay_controller.py – GPIO relay control with timed pulses.
 
-Supports both active-LOW and active-HIGH relay boards (set RELAY_ACTIVE_LOW
-in config.py).
+Supports both active-HIGH (Normally-Open) and active-LOW relay boards.
+Set RELAY_ACTIVE_LOW in config.py:
+  False = active-HIGH / Normally-Open  (GPIO HIGH → relay ON)  ← current setting
+  True  = active-LOW  / Normally-Closed (GPIO LOW  → relay ON)
 
 Usage:
     from relay_controller import RelayController
