@@ -3,28 +3,21 @@ monitor/server.py – Live MJPEG dual-camera stream.
 
 Streams both cameras as live video in your browser — no page reload.
 
-Run ALONGSIDE main.py in a separate terminal:
-    python monitor/server.py
-    Open:  http://<pi-ip>:8080
+Can be run in two ways:
+  1. Automatically as part of main.py (imported and started in background)
+  2. Standalone:  python monitor/server.py
 
 How it works
 ------------
-• If a camera is FREE  → opens it directly and streams live frames (~15 fps)
-• If a camera is BUSY  → streams the last saved image from disk repeatedly
-  This means even while main.py is running you still see the last captured frame.
+• main.py's camera module continuously saves frames to /tmp/ (~10 fps)
+• This server reads those files and streams them as MJPEG to the browser
 
-Press Ctrl+C to stop.
+Press Ctrl+C to stop (if running standalone).
 """
 
-import os, io, time, socket, threading
+import os, time, socket, threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-
-try:
-    from picamera2 import Picamera2
-    import cv2
-    HAS_CAM = True
-except ImportError:
-    HAS_CAM = False
+from socketserver import ThreadingMixIn
 
 CAM0_SAVE = "/tmp/fruit_capture_cam0.jpg"
 CAM1_SAVE = "/tmp/fruit_capture_cam1.jpg"
@@ -52,44 +45,69 @@ h1{text-align:center;color:#e94560;margin-bottom:16px;font-size:1.5em}
 <h1>&#127909; Live Camera Monitor</h1>
 <div class="grid">
   <div class="card">
-    <h2>Camera 0 &mdash; ov5647</h2>
-    <img src="/stream/0" alt="cam0">
+    <h2>Camera 0 &mdash; imx219</h2>
+    <img id="cam0" alt="cam0">
   </div>
   <div class="card">
-    <h2>Camera 1 &mdash; imx219</h2>
-    <img src="/stream/1" alt="cam1">
+    <h2>Camera 1 &mdash; ov5647</h2>
+    <img id="cam1" alt="cam1">
   </div>
   <div class="card best">
     <h2>&#10003; Best result (last detection by main.py)</h2>
-    <img src="/stream/best" alt="best">
+    <img id="best" alt="best">
   </div>
 </div>
+<script>
+// Use JS-based image refresh instead of native MJPEG <img> streams.
+// Native MJPEG can cause browsers to only render one stream at a time.
+function startStream(imgId, url) {
+  var img = document.getElementById(imgId);
+  function refresh() {
+    var newImg = new Image();
+    newImg.onload = function() {
+      img.src = newImg.src;
+      setTimeout(refresh, 100);
+    };
+    newImg.onerror = function() {
+      setTimeout(refresh, 500);
+    };
+    newImg.src = url + '?t=' + Date.now();
+  }
+  refresh();
+}
+startStream('cam0', '/snapshot/0');
+startStream('cam1', '/snapshot/1');
+startStream('best', '/snapshot/best');
+</script>
 </body>
 </html>
 """
 
 
-# ─── Per-camera MJPEG frame buffer ─────────────────────────────────────────
+# ─── Per-camera frame buffer ──────────────────────────────────────────────
 
 class FrameBuffer:
     """Thread-safe buffer holding the latest JPEG bytes for one camera."""
     def __init__(self):
-        self._lock  = threading.Lock()
+        self._cond  = threading.Condition()
         self._frame = None
-        self._event = threading.Event()
+        self._seq   = 0          # sequence counter
 
     def put(self, jpeg_bytes: bytes):
-        with self._lock:
+        with self._cond:
             self._frame = jpeg_bytes
-        self._event.set()
-        self._event.clear()
+            self._seq += 1
+            self._cond.notify_all()      # wake ALL waiting consumers
 
     def get(self) -> bytes | None:
-        with self._lock:
+        with self._cond:
             return self._frame
 
-    def wait(self, timeout=1.0):
-        self._event.wait(timeout)
+    def wait_for_new(self, last_seq: int, timeout=1.0) -> tuple:
+        """Wait until a new frame is available (seq > last_seq)."""
+        with self._cond:
+            self._cond.wait_for(lambda: self._seq > last_seq, timeout=timeout)
+            return self._frame, self._seq
 
 
 # Global buffers
@@ -100,87 +118,33 @@ _buffers = {
 }
 
 
-def _open_camera(index: int):
-    """Try video then still config; return (cam, mode) or None."""
-    for mode in ("video", "still"):
-        try:
-            cam = Picamera2(index)
-            if mode == "video":
-                cfg = cam.create_video_configuration(
-                    main={"size": (640, 480), "format": "RGB888"}
-                )
-            else:
-                cfg = cam.create_still_configuration(
-                    main={"size": (640, 480), "format": "RGB888"}
-                )
-            cam.configure(cfg)
-            cam.start()
-            print(f"  [cam{index}] Opened in {mode} mode ✓")
-            return cam, mode
-        except Exception as e:
-            print(f"  [cam{index}] {mode} mode failed: {e}")
-            try: cam.close()
-            except Exception: pass
-    print(f"  [cam{index}] Both modes failed – using saved images")
-    return None, None
-
-
-def _cam_thread(index: int, save_path: str):
-    """Background thread: captures frames and pushes to FrameBuffer."""
-    key = str(index)
+def _file_stream_thread(key: str, path: str):
+    """
+    Reads a saved JPEG file continuously and pushes to buffer.
+    camera.py's background threads update these files at ~10 fps.
+    """
     buf = _buffers[key]
-
-    cam, mode = _open_camera(index) if HAS_CAM else (None, None)
-
-    while True:
-        try:
-            if cam is not None:
-                # Live capture
-                if mode == "video":
-                    frame_rgb = cam.capture_array()
-                else:
-                    cam.start()  # still mode needs start each capture
-                    frame_rgb = cam.capture_array()
-                    cam.stop()
-                import numpy as np, cv2
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                ok, enc = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                if ok:
-                    buf.put(enc.tobytes())
-            else:
-                # Fallback: read last saved file from main.py
-                if os.path.exists(save_path):
-                    with open(save_path, "rb") as f:
-                        buf.put(f.read())
-                time.sleep(0.2)   # 5 fps from file
-        except Exception as e:
-            print(f"  [cam{index}] frame error: {e}")
-            time.sleep(0.5)
-
-
-def _file_thread(key: str, path: str):
-    """Streams a saved file continuously (for 'best' result panel)."""
-    buf = _buffers[key]
-    last_mtime = 0
+    last_data = None
     while True:
         try:
             if os.path.exists(path):
-                mt = os.path.getmtime(path)
-                if mt != last_mtime:
-                    with open(path, "rb") as f:
-                        buf.put(f.read())
-                    last_mtime = mt
+                with open(path, "rb") as f:
+                    data = f.read()
+                # Only push if we got valid data that is different from last
+                if data and len(data) > 100 and data != last_data:
+                    buf.put(data)
+                    last_data = data
         except Exception:
             pass
-        time.sleep(0.25)
+        time.sleep(0.08)  # ~12 fps polling
 
 
 def _mjpeg_chunks(key: str):
     """Yields raw bytes for an MJPEG multipart stream."""
     buf = _buffers[key]
+    last_seq = 0
     while True:
-        buf.wait(timeout=1.0)
-        frame = buf.get()
+        frame, last_seq = buf.wait_for_new(last_seq, timeout=1.0)
         if frame is None:
             continue
         yield (
@@ -204,6 +168,26 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
 
+        elif path.startswith("/snapshot/"):
+            # Single JPEG snapshot – used by the JS-based refresh loop
+            key = path[len("/snapshot/"):]
+            if key not in _buffers:
+                self.send_error(404)
+                return
+            frame = _buffers[key].get()
+            if frame is None:
+                self.send_error(503, "No frame available yet")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(frame)))
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+            try:
+                self.wfile.write(frame)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
         elif path.startswith("/stream/"):
             key = path[len("/stream/"):]
             if key not in _buffers:
@@ -212,7 +196,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header(
                 "Content-Type",
-                f"multipart/x-mixed-replace; boundary=frame"
+                "multipart/x-mixed-replace; boundary=frame"
             )
             self.end_headers()
             try:
@@ -229,40 +213,64 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """Handle each request in a separate thread so both MJPEG streams run."""
+    daemon_threads = True
+    allow_reuse_address = True
+    allow_reuse_port = True
 
-if __name__ == "__main__":
+
+# ─── Public API (used by main.py) ────────────────────────────────────────────
+
+def start_monitor(port: int = PORT):
+    """
+    Start the monitor server in background threads.
+
+    Call this from main.py to integrate the monitor automatically.
+    The server runs entirely in daemon threads and stops when main.py exits.
+    """
     try:
         ip = socket.gethostbyname(socket.gethostname())
     except Exception:
         ip = "localhost"
 
-    # Start camera capture threads with a 1s delay between them
-    # (prevents libcamera race when both cameras initialise simultaneously)
-    for idx, save in ((0, CAM0_SAVE), (1, CAM1_SAVE)):
-        t = threading.Thread(target=_cam_thread, args=(idx, save), daemon=True)
+    # Start file-streaming threads for each camera
+    for key, path in [("0", CAM0_SAVE), ("1", CAM1_SAVE)]:
+        t = threading.Thread(target=_file_stream_thread, args=(key, path), daemon=True)
         t.start()
-        time.sleep(1.2)   # give cam(idx) time to fully init before opening next
 
     # Start best-result file watcher
     t = threading.Thread(
-        target=_file_thread, args=("best", "/tmp/fruit_capture.jpg"), daemon=True
+        target=_file_stream_thread, args=("best", "/tmp/fruit_capture.jpg"), daemon=True
     )
+    t.start()
+
+    # Start HTTP server in a daemon thread
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
     print("=" * 50)
     print("  Live Camera Monitor (MJPEG)")
     print("=" * 50)
-    print(f"  http://{ip}:{PORT}")
-    print(f"  http://localhost:{PORT}")
-    print()
-    print("  If cameras are busy (main.py running),")
-    print("  shows last saved frames from disk.")
-    print("  Ctrl+C to stop.")
+    print(f"  http://{ip}:{port}")
+    print(f"  http://localhost:{port}")
     print("=" * 50)
 
+    return server
+
+
+# ─── Standalone entry point ──────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    server = start_monitor()
+    print()
+    print("  Running standalone. Ctrl+C to stop.")
+    print("  Streams saved images from /tmp/ if available.")
+    print()
     try:
-        server = HTTPServer(("0.0.0.0", PORT), Handler)
-        server.serve_forever()
+        # Keep main thread alive
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         print("\nStopped.")

@@ -2,7 +2,7 @@
 main.py – Fruit Classification System: main event loop.
 
 Flow:
-    startup → init all modules → start OLED idle loop
+    startup → init all modules → start monitor server → start OLED idle loop
     loop:
       1. Non-blocking keypad poll
          C + digit → select produce → show on OLED for 3 s
@@ -12,6 +12,8 @@ Flow:
       5. Determine relay + delay, schedule non-blocking relay pulse
       6. Show result on OLED for 3 s
       7. Repeat
+
+Monitor server starts automatically at http://<pi-ip>:8080
 
 Run as root (or add user to gpio group):
     python main.py
@@ -36,13 +38,17 @@ from ir_sensor        import IRSensor
 from keypad           import Keypad
 from oled_display     import OLEDDisplay
 from relay_controller import RelayController
+from monitor.server   import start_monitor
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
+# Silence extremely noisy picamera2 / libcamera debug logs
+logging.getLogger("picamera2").setLevel(logging.WARNING)
+logging.getLogger("libcamera").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 
@@ -73,6 +79,9 @@ def main():
     log.info(f"Default produce: {PRODUCE_NAMES[selected_produce]}")
 
     display.start()
+
+    # Start web monitor server in background
+    start_monitor()
     log.info("System ready – waiting for fruit …")
 
     try:
@@ -98,14 +107,25 @@ def main():
 
             # ── 3. Capture image + measure ───────────────────────────────────
             try:
-                size_mm, img_path = camera.capture_and_measure(
+                measurement, img_path = camera.capture_and_measure(
                     produce_name=PRODUCE_NAMES[selected_produce]
                 )
             except Exception as e:
                 log.error(f"Camera error: {e}")
                 continue
 
-            log.info(f"Measured size: {size_mm} mm  (image: {img_path})")
+            if measurement is None:
+                size_mm = 0.0
+            else:
+                size_mm = measurement["diameter_mm"]
+
+            log.info(
+                f"Measured: Ø={size_mm}mm"
+                + (f"  vol={measurement['volume_cm3']}cm³  "
+                   f"w={measurement['width_mm']}mm  h={measurement['height_mm']}mm"
+                   if measurement else "")
+                + f"  (image: {img_path})"
+            )
 
             # Size 0.0 means the camera could not detect a fruit contour
             if size_mm == 0.0:
@@ -124,9 +144,12 @@ def main():
                     continue
 
             # ── 4. Classify ──────────────────────────────────────────────────
-            info = classify_info(size_mm, selected_produce)
+            info = classify_info(size_mm, selected_produce, measurement)
             category = info["category"]
-            log.info(f"Classification: {info['produce_name']} → {category}")
+            log.info(
+                f"Classification: {info['produce_name']} → {category}  "
+                f"(Ø={info['size_mm']}mm  vol={info['volume_cm3']}cm³)"
+            )
 
             # ── 5. Schedule relay ────────────────────────────────────────────
             relay_index = SIZE_TO_RELAY.get(category)   # None for "unknown"

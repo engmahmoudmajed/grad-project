@@ -37,16 +37,31 @@ def classify_size(fruit_size_mm: float, produce_index: int) -> str:
     return "unknown"
 
 
-def classify_info(fruit_size_mm: float, produce_index: int) -> dict:
+def classify_info(fruit_size_mm: float, produce_index: int,
+                   measurement: dict | None = None) -> dict:
     """
     Extended classification result, handy for display / logging.
 
+    Args:
+        fruit_size_mm:  Diameter in mm (largest visible dimension).
+        produce_index:  Index into PRODUCE_SIZES_MM / PRODUCE_NAMES.
+        measurement:    Optional measurement dict from detector
+                        (with width_mm, height_mm, volume_cm3).
+
     Returns a dict with keys:
-        produce_name, size_mm, category
+        produce_name, size_mm, category, volume_cm3, width_mm, height_mm
     """
     category = classify_size(fruit_size_mm, produce_index)
-    return {
+    result = {
         "produce_name": PRODUCE_NAMES[produce_index],
         "size_mm":      round(fruit_size_mm, 1),
         "category":     category,
+        "volume_cm3":   0.0,
+        "width_mm":     0.0,
+        "height_mm":    0.0,
     }
+    if measurement:
+        result["volume_cm3"] = measurement.get("volume_cm3", 0.0)
+        result["width_mm"]   = measurement.get("width_mm", 0.0)
+        result["height_mm"]  = measurement.get("height_mm", 0.0)
+    return result
