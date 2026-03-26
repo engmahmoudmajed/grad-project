@@ -17,6 +17,7 @@ Complete guide to build, wire, and run the **Fruit Classification System** on a 
 9. [Live Monitor (Web)](#9-live-monitor-web)
 10. [Configuration Reference](#10-configuration-reference)
 11. [Troubleshooting](#11-troubleshooting)
+12. [Auto-Start on Boot](#12-auto-start-on-boot)
 
 ---
 
@@ -445,6 +446,40 @@ Tests can run on **any machine** (no hardware needed) — they mock GPIO and cam
 
 ---
 
+## 12. Auto-Start on Boot
+
+To make the fruit sorter start automatically every time the Raspberry Pi boots:
+
+### One-Command Install
+
+```bash
+sudo bash scripts/install-service.sh
+```
+
+This copies the systemd service file, enables it, and starts it immediately.
+
+### Managing the Service
+
+| Command | Action |
+|---------|--------|
+| `sudo systemctl status fruit-sorter` | Check if it's running |
+| `sudo systemctl stop fruit-sorter` | Stop the service |
+| `sudo systemctl restart fruit-sorter` | Restart after config changes |
+| `sudo journalctl -u fruit-sorter -f` | View live logs |
+| `sudo systemctl disable fruit-sorter` | Disable auto-start (keeps service) |
+
+### Uninstall
+
+To completely remove auto-start:
+
+```bash
+sudo bash scripts/uninstall-service.sh
+```
+
+> **Note:** The service runs under user `mahmoudmajed`. If your username is different, edit `fruit-sorter.service` before installing.
+
+---
+
 ## Project File Structure
 
 ```
@@ -459,8 +494,12 @@ grad-project/
 ├── oled_display.py      # I2C OLED display (idle stats + events)
 ├── ir_sensor.py         # IR obstacle sensor driver
 ├── calibrate.py         # Interactive PIXELS_PER_MM calibration
+├── fruit-sorter.service # Systemd service for auto-start on boot
 ├── monitor/
 │   └── server.py        # Live MJPEG web viewer for both cameras
+├── scripts/
+│   ├── install-service.sh   # One-command service installer
+│   └── uninstall-service.sh # Service uninstaller
 ├── assets/
 │   ├── PixelOperator.ttf       # OLED text font
 │   └── lineawesome-webfont.ttf # OLED icon font
@@ -488,3 +527,4 @@ grad-project/
 - [ ] Calibrate cameras: `python calibrate.py`
 - [ ] Run: `python main.py`
 - [ ] Open browser: `http://<pi-ip>:8080`
+- [ ] (Optional) Enable auto-start: `sudo bash scripts/install-service.sh`

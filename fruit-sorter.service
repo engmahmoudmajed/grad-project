@@ -1,0 +1,16 @@
+[Unit]
+Description=Fruit Classification Sorting System
+After=network.target
+
+[Service]
+Type=simple
+User=mahmoudmajed
+WorkingDirectory=/home/mahmoudmajed/grad-project
+ExecStart=/home/mahmoudmajed/grad-project/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
