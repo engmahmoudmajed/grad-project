@@ -59,6 +59,10 @@ grad-project/
 
 ## Setup
 
+> 📖 **For the complete step-by-step guide** (hardware assembly, wiring, OS setup, calibration, and troubleshooting), see **[docs/SETUP.md](docs/SETUP.md)**.
+>
+> 📷 **For camera mounting dimensions and layout**, see **[docs/CAMERA_PLACEMENT.md](docs/CAMERA_PLACEMENT.md)**.
+
 ```bash
 # Clone the repository
 git clone <repository-url>
